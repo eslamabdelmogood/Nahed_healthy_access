@@ -1,0 +1,65 @@
+{
+  "patient_id": "NAHED-EGY-2024-V3",
+  "clinical_profile": {
+    "diagnosis": "Invasive Ductal Carcinoma (Breast Cancer)",
+    "stage": "IIB",
+    "biomarkers": {
+      "HER2": "Positive",
+      "ER": "Negative",
+      "PR": "Negative"
+    },
+    "urgency_score": 0.88,
+    "recommended_action": "Immediate neoadjuvant chemotherapy combined with HER2-targeted therapy."
+  },
+  "financial_roadmap": {
+    "fibo_classification": "Low-Income Household",
+    "estimated_annual_cost": "260,000 EGP",
+    "insurance_status": "Uninsured / Public Support Eligible",
+    "funding_sources": {
+      "presidential_initiative_100_million_seha": "100% Coverage Eligible",
+      "ngo_support_baheya": "Diagnostic & Radiology Support",
+      "out_of_pocket_patient": 0
+    }
+  },
+  "pharma_access_integration": {
+    "drug_details": {
+      "generic_name": "Trastuzumab",
+      "brands": ["Herceptin", "Ogivri"],
+      "market_price": "21,000 EGP per vial"
+    },
+    "patient_access_program": {
+      "program_name": "Pharma-Care Global Reach",
+      "status": "Eligible for 100% Subsidy",
+      "next_step": "Submit verified income statement via Nahed Engine"
+    }
+  },
+  "holistic_care_protocol": {
+    "nutrition_plan": {
+      "focus": "Anti-inflammatory & Immune Support (Chemo-ready)",
+      "recommended_foods": ["Leafy greens", "Cruciferous vegetables", "High-protein lean meats", "Berries"],
+      "strict_avoidance": ["Refined sugars", "Unpasteurized products", "Excessive caffeine"],
+      "hydration_target": "2.5 - 3 Liters/Day"
+    },
+    "psychological_support": {
+      "intervention": "Cognitive Behavioral Therapy (CBT) for Cancer Patients",
+      "resource": "Baheya Foundation - Mental Health Wing",
+      "status": "Highly Recommended based on Urgency Score",
+      "support_session_available": true
+    }
+  },
+  "logistics_and_deployment": {
+    "nearest_treatment_center": "Baheya Foundation - Sheikh Zayed",
+    "distance_km": 12.5,
+    "transport_assistance": "Eligible via Misr El Kheir transport grant",
+    "hajj_2025_readiness": {
+      "status": "Eligible for medical pilgrimage protocol",
+      "note": "Case mapped to Makkah Oncology Center for treatment continuity during Hajj"
+    }
+  },
+  "diagnostic_steps": [
+    "Finalize Biopsy confirmation",
+    "Baseline Echocardiogram (Required for Trastuzumab)",
+    "Initiate Presidential Initiative Enrollment",
+    "First Counseling Session (Psychological Support)"
+  ]
+}
