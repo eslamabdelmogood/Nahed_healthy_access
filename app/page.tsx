@@ -31,9 +31,11 @@ import {
   Mic,
   Volume2,
   Globe,
+  type File,
 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { Toaster } from "@/components/ui/toaster"
+import { MedicalSpinner } from "@/components/medical-spinner"
 
 type ViewType = "upload" | "diagnostics" | "financial" | "logistics" | "wellness"
 type LanguageType = "en" | "ar"
@@ -52,110 +54,250 @@ export default function NahedHealthAccessDashboard() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const { toast } = useToast()
 
-  const handleVoiceInteraction = () => {
-    const synth = window.speechSynthesis
+  const handleFileUploadToGemini = async (file: File) => {
+    setIsLoading(true)
+    const formData = new FormData()
+    formData.append("file", file)
 
-    // Stop any ongoing speech
-    if (synth.speaking) {
-      synth.cancel()
-      setIsVoiceSpeaking(false)
-      return
-    }
+    try {
+      console.log("[v0] Sending file to Gemini API:", file.name)
 
-    const diagnosticText =
-      "The diagnostic summary shows high urgency. Initial assessment complete. Specialist referral pending."
-    const pharmaText = patientData?.pharma_access_integration?.drug_details?.generic_name
-      ? `Recommended medication: ${patientData.pharma_access_integration.drug_details.generic_name}.`
-      : ""
+      const response = await fetch("/api/analyze-report", {
+        method: "POST",
+        body: formData,
+      })
 
-    // Select text based on active view
-    let speechText = ""
-    let descriptionText = ""
-
-    if (activeView === "financial") {
-      speechText =
-        language === "en"
-          ? "FIBO Financial Roadmap. Estimated total cost: twelve thousand four hundred fifty dollars. Specialist consultation fee: two thousand dollars. Diagnostic imaging: one thousand five hundred dollars. Hospital stay and monitoring: five thousand dollars. Medication and treatment: three thousand nine hundred fifty dollars. Emergency buffer: ten percent."
-          : "خارطة الطريق المالية FIBO. التكلفة الإجمالية المقدرة: اثنا عشر ألف وأربعمائة وخمسون دولاراً."
-      descriptionText = "Financial Roadmap"
-    } else {
-      speechText =
-        language === "en"
-          ? `${diagnosticText} ${pharmaText}`
-          : `ملخص التشخيص يظهر حالة طارئة عالية. التقييم الأولي مكتمل.`
-      descriptionText = "Diagnostic Summary"
-    }
-
-    const utterance = new SpeechSynthesisUtterance(speechText)
-
-    utterance.lang = language === "en" ? "en-US" : "ar-EG"
-
-    utterance.rate = 1 // Normal speaking rate
-    utterance.pitch = 1.2 // Slightly higher pitch for female voice
-    utterance.volume = 1 // Maximum volume
-
-    // Get available voices and select a female voice if available
-    const voices = synth.getVoices()
-    const femaleVoice = voices.find((voice) => voice.name.includes("Female") || voice.name.includes("female"))
-    if (femaleVoice) {
-      utterance.voice = femaleVoice
-    } else {
-      // Fallback: find any voice that sounds professional
-      const englishVoice = voices.find((voice) => voice.lang === "en-US")
-      if (englishVoice) {
-        utterance.voice = englishVoice
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || "Failed to analyze report")
       }
+
+      const extractedData = await response.json()
+      console.log("[v0] Gemini extraction successful:", extractedData)
+
+      setPatientData(extractedData)
+      setJsonData(JSON.stringify(extractedData, null, 2))
+      setShowResults(true)
+      setActiveView("diagnostics")
+
+      toast({
+        title: "Analysis Complete",
+        description: "Medical report successfully processed and extracted.",
+      })
+
+      // Trigger voice welcome message
+      handleVoiceWelcome()
+    } catch (error) {
+      console.error("[v0] Error analyzing report:", error)
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to analyze medical report",
+        variant: "destructive",
+      })
+    } finally {
+      setIsLoading(false)
     }
+  }
+
+  const handleVoiceWelcome = async () => {
+    const welcomeText =
+      language === "en"
+        ? `Welcome to Nahed Health Access. Your medical report has been successfully analyzed. We have identified your diagnosis and prepared a comprehensive care plan including financial assistance options, treatment recommendations, and logistical support. Let's begin with the diagnostic summary.`
+        : `أهلا وسهلا في تطبيق نهضة للوصول الصحي. تم تحليل تقريرك الطبي بنجاح. لقد حددنا التشخيص الخاص بك وأعددنا خطة رعاية شاملة تتضمن خيارات المساعدة المالية والتوصيات العلاجية والدعم اللوجستي. دعنا نبدأ بملخص التشخيص.`
+
+    if ("speechSynthesis" in window) {
+      window.speechSynthesis.cancel()
+
+      const utterance = new SpeechSynthesisUtterance(welcomeText)
+      utterance.lang = language === "en" ? "en-US" : "ar-EG"
+      utterance.rate = 1
+      utterance.pitch = 1
+      utterance.volume = 1
+
+      const getVoices = () => {
+        const voices = window.speechSynthesis.getVoices()
+        let selectedVoice = null
+
+        if (language === "en") {
+          selectedVoice =
+            voices.find((voice) => voice.name.includes("female") && voice.lang.includes("en")) ||
+            voices.find((voice) => voice.lang.includes("en-US") && voice.name.includes("Google US English Female")) ||
+            voices.find((voice) => voice.lang.includes("en") && !voice.name.includes("male")) ||
+            voices.find((voice) => voice.lang.includes("en"))
+        } else if (language === "ar") {
+          selectedVoice =
+            voices.find((voice) => voice.lang.includes("ar")) || voices.find((voice) => voice.lang.includes("ar-EG"))
+        }
+
+        if (selectedVoice) {
+          utterance.voice = selectedVoice
+        }
+      }
+
+      window.speechSynthesis.onvoiceschanged = getVoices
+      getVoices()
+
+      window.speechSynthesis.speak(utterance)
+    }
+  }
+
+  const handleVoiceInteraction = async () => {
+    console.log("[v0] Voice interaction initiated")
+
+    toast({
+      title: "Connecting to Voice Agent...",
+      description: `Language: ${language === "en" ? "English" : "Arabic (Egyptian)"}`,
+    })
 
     setIsVoiceSpeaking(true)
 
-    toast({
-      title: "AI Voice Navigator",
-      description: `Reading: ${descriptionText}`,
-    })
+    // Get the text to speak based on the current view
+    let speechText = ""
 
-    utterance.onend = () => {
-      setIsVoiceSpeaking(false)
-      toast({
-        title: "Playback Complete",
-        description: "Voice assistant finished reading.",
-      })
+    if (activeView === "diagnostics") {
+      const pharmaText = patientData?.pharma_access_integration?.drug_details?.generic_name
+        ? `Recommended medication: ${patientData.pharma_access_integration.drug_details.generic_name}.`
+        : ""
+      speechText =
+        language === "en"
+          ? `The diagnostic summary shows high urgency. Initial assessment complete. Specialist referral pending. ${pharmaText}`
+          : `ملخص التشخيص يظهر حالة طارئة عالية. التقييم الأولي مكتمل. الإحالة إلى متخصص معلقة.`
+    } else if (activeView === "financial") {
+      speechText =
+        language === "en"
+          ? `FIBO Financial Roadmap. Estimated total cost: $12,450. Funding breakdown: Patient coverage: $4,200. NGO support: $6,000. Grant pending: $2,250. ${
+              patientData?.pharma_access_integration?.drug_details?.generic_name
+                ? `Recommended medication: ${patientData.pharma_access_integration.drug_details.generic_name}.`
+                : ""
+            }`
+          : `جدول الطريق المالي لـ FIBO. إجمالي التكلفة المقدرة: 12,450 دولار. تفصيل التمويل: تغطية المريض: 4,200 دولار. دعم المنظمات غير الحكومية: 6,000 دولار. منحة معلقة: 2,250 دولار.`
     }
 
-    utterance.onerror = (error) => {
-      console.error("[v0] Speech synthesis error:", error)
+    console.log("[v0] Speaking:", speechText)
+
+    // Use Web Speech API for text-to-speech
+    if ("speechSynthesis" in window) {
+      // Cancel any ongoing speech
+      window.speechSynthesis.cancel()
+
+      const utterance = new SpeechSynthesisUtterance(speechText)
+      utterance.lang = language === "en" ? "en-US" : "ar-EG"
+      utterance.rate = 1
+      utterance.pitch = 1
+      utterance.volume = 1
+
+      // Get available voices and select a female voice
+      const getVoices = () => {
+        const voices = window.speechSynthesis.getVoices()
+        let selectedVoice = null
+
+        // Try to find a professional female voice
+        if (language === "en") {
+          selectedVoice =
+            voices.find((voice) => voice.name.includes("female") && voice.lang.includes("en")) ||
+            voices.find((voice) => voice.lang.includes("en-US") && voice.name.includes("Google US English Female")) ||
+            voices.find((voice) => voice.lang.includes("en") && !voice.name.includes("male")) ||
+            voices.find((voice) => voice.lang.includes("en"))
+        } else if (language === "ar") {
+          selectedVoice =
+            voices.find((voice) => voice.lang.includes("ar")) || voices.find((voice) => voice.lang.includes("ar-EG"))
+        }
+
+        if (selectedVoice) {
+          utterance.voice = selectedVoice
+        }
+      }
+
+      // Voices might not be loaded yet, so add an event listener
+      window.speechSynthesis.onvoiceschanged = getVoices
+      getVoices()
+
+      // Handle speech end
+      utterance.onend = () => {
+        setIsVoiceSpeaking(false)
+        console.log("[v0] Voice interaction complete")
+
+        toast({
+          title: "Playback Complete",
+          description: "Voice assistant finished reading.",
+        })
+      }
+
+      // Handle errors
+      utterance.onerror = (event) => {
+        console.error("[v0] Speech synthesis error:", event.error)
+        setIsVoiceSpeaking(false)
+
+        toast({
+          title: "Error",
+          description: "Could not play audio. Please try again.",
+          variant: "destructive",
+        })
+      }
+
+      // Speak the text
+      window.speechSynthesis.speak(utterance)
+
+      toast({
+        title: "AI Voice Navigator",
+        description: `Reading: ${activeView === "diagnostics" ? "Diagnostic Summary" : "Financial Roadmap"}`,
+      })
+    } else {
+      // Fallback if Web Speech API is not supported
       setIsVoiceSpeaking(false)
       toast({
         title: "Error",
-        description: "Voice playback encountered an issue.",
+        description: "Text-to-speech is not supported in your browser.",
         variant: "destructive",
       })
     }
-
-    // Start speaking
-    synth.speak(utterance)
   }
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
-    if (file && file.type === "application/json") {
-      setIsLoading(true)
-      const reader = new FileReader()
-      reader.onload = (event) => {
-        const jsonString = event.target?.result as string
-        setJsonData(jsonString)
-        try {
-          const parsedData = JSON.parse(jsonString)
-          setPatientData(parsedData)
-          setShowResults(true)
-          setActiveView("diagnostics")
-        } catch (error) {
-          console.error("Error parsing JSON:", error)
-        } finally {
-          setIsLoading(false)
-        }
+    if (file) {
+      const supportedTypes = [
+        "application/json",
+        "application/pdf",
+        "image/jpeg",
+        "image/png",
+        "image/gif",
+        "image/webp",
+      ]
+
+      if (!supportedTypes.includes(file.type)) {
+        toast({
+          title: "Unsupported File Type",
+          description: "Please upload a JSON, PDF, or image file (JPEG, PNG, GIF, WebP)",
+          variant: "destructive",
+        })
+        return
       }
-      reader.readAsText(file)
+
+      if (file.type === "application/json") {
+        // Handle JSON file as before
+        const reader = new FileReader()
+        reader.onload = (event) => {
+          const jsonString = event.target?.result as string
+          setJsonData(jsonString)
+          try {
+            const parsedData = JSON.parse(jsonString)
+            setPatientData(parsedData)
+            setShowResults(true)
+            setActiveView("diagnostics")
+          } catch (error) {
+            console.error("Error parsing JSON:", error)
+            toast({
+              title: "Error",
+              description: "Invalid JSON format",
+              variant: "destructive",
+            })
+          }
+        }
+        reader.readAsText(file)
+      } else {
+        handleFileUploadToGemini(file)
+      }
     }
   }
 
@@ -172,24 +314,43 @@ export default function NahedHealthAccessDashboard() {
     e.preventDefault()
     setIsDragging(false)
     const file = e.dataTransfer.files[0]
-    if (file && file.type === "application/json") {
-      setIsLoading(true)
-      const reader = new FileReader()
-      reader.onload = (event) => {
-        const jsonString = event.target?.result as string
-        setJsonData(jsonString)
-        try {
-          const parsedData = JSON.parse(jsonString)
-          setPatientData(parsedData)
-          setShowResults(true)
-          setActiveView("diagnostics")
-        } catch (error) {
-          console.error("Error parsing JSON:", error)
-        } finally {
-          setIsLoading(false)
-        }
+    if (file) {
+      const supportedTypes = [
+        "application/json",
+        "application/pdf",
+        "image/jpeg",
+        "image/png",
+        "image/gif",
+        "image/webp",
+      ]
+
+      if (!supportedTypes.includes(file.type)) {
+        toast({
+          title: "Unsupported File Type",
+          description: "Please upload a JSON, PDF, or image file (JPEG, PNG, GIF, WebP)",
+          variant: "destructive",
+        })
+        return
       }
-      reader.readAsText(file)
+
+      if (file.type === "application/json") {
+        const reader = new FileReader()
+        reader.onload = (event) => {
+          const jsonString = event.target?.result as string
+          setJsonData(jsonString)
+          try {
+            const parsedData = JSON.parse(jsonString)
+            setPatientData(parsedData)
+            setShowResults(true)
+            setActiveView("diagnostics")
+          } catch (error) {
+            console.error("Error parsing JSON:", error)
+          }
+        }
+        reader.readAsText(file)
+      } else {
+        handleFileUploadToGemini(file)
+      }
     }
   }
 
@@ -200,10 +361,7 @@ export default function NahedHealthAccessDashboard() {
   if (isLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
-        <div className="text-center">
-          <div className="w-16 h-16 border-4 border-medical-primary border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-foreground font-medium">Processing patient data...</p>
-        </div>
+        <MedicalSpinner />
       </div>
     )
   }
@@ -332,7 +490,7 @@ export default function NahedHealthAccessDashboard() {
               <div className="mb-8">
                 <h2 className="text-2xl font-semibold text-foreground mb-2">Medical Data Injection</h2>
                 <p className="text-muted-foreground mb-6">
-                  Upload patient medical data in JSON format for comprehensive analysis and planning
+                  Upload patient medical data as JSON, PDF, or medical images for comprehensive analysis and planning
                 </p>
 
                 <div
@@ -350,13 +508,15 @@ export default function NahedHealthAccessDashboard() {
                       <FileJson className="w-8 h-8 text-medical-primary" />
                     </div>
                     <div>
-                      <p className="text-foreground font-medium mb-1">Drop your JSON file here or click to browse</p>
-                      <p className="text-sm text-muted-foreground">Schema validation will be performed automatically</p>
+                      <p className="text-foreground font-medium mb-1">Drop your file here or click to browse</p>
+                      <p className="text-sm text-muted-foreground">
+                        Supported: JSON files, PDF reports, or medical images (JPEG, PNG, GIF, WebP)
+                      </p>
                     </div>
                     <input
                       ref={fileInputRef}
                       type="file"
-                      accept="application/json"
+                      accept=".json,application/pdf,image/jpeg,image/png,image/gif,image/webp"
                       onChange={handleFileUpload}
                       className="hidden"
                       id="file-upload"
