@@ -50,9 +50,213 @@ export default function NahedHealthAccessDashboard() {
 
   const [isVoiceSpeaking, setIsVoiceSpeaking] = useState(false)
   const [language, setLanguage] = useState<LanguageType>("en")
+  const [isElevenLabsLoading, setIsElevenLabsLoading] = useState(false)
 
   const fileInputRef = useRef<HTMLInputElement>(null)
   const { toast } = useToast()
+
+  const cleanMarkdown = (text: string): string => {
+    if (!text) return ""
+    return text
+      .replace(/\*\*/g, "") // Remove bold markers
+      .replace(/\*/g, "") // Remove italics
+      .replace(/#/g, "") // Remove headers
+      .replace(/`/g, "") // Remove code blocks
+      .replace(/\[([^\]]*)\]$$[^)]*$$/g, "$1") // Convert links to text
+      .trim()
+  }
+
+  const playElevenLabsAudio = async (text: string) => {
+    try {
+      setIsVoiceSpeaking(true)
+      console.log("[v0] Using Web Speech API for audio playback")
+
+      // Use Web Speech API directly since ElevenLabs has permission restrictions
+      fallbackToWebSpeech(text)
+    } catch (error) {
+      console.error("[v0] Audio playback error:", error)
+      setIsVoiceSpeaking(false)
+    }
+  }
+
+  const fallbackToWebSpeech = (speechText: string) => {
+    if ("speechSynthesis" in window) {
+      window.speechSynthesis.cancel()
+
+      const utterance = new SpeechSynthesisUtterance(speechText)
+      utterance.lang = language === "en" ? "en-US" : "ar-EG"
+      utterance.rate = 1
+      utterance.pitch = 1
+      utterance.volume = 1
+
+      const getVoices = () => {
+        const voices = window.speechSynthesis.getVoices()
+        let selectedVoice = null
+
+        if (language === "en") {
+          selectedVoice =
+            voices.find((voice) => voice.name.includes("female") && voice.lang.includes("en")) ||
+            voices.find((voice) => voice.lang.includes("en-US") && voice.name.includes("Google US English Female")) ||
+            voices.find((voice) => voice.lang.includes("en") && !voice.name.includes("male")) ||
+            voices.find((voice) => voice.lang.includes("en"))
+        } else if (language === "ar") {
+          selectedVoice =
+            voices.find((voice) => voice.lang.includes("ar")) || voices.find((voice) => voice.lang.includes("ar-EG"))
+        }
+
+        if (selectedVoice) {
+          utterance.voice = selectedVoice
+        }
+      }
+
+      window.speechSynthesis.onvoiceschanged = getVoices
+      getVoices()
+
+      utterance.onend = () => {
+        setIsVoiceSpeaking(false)
+        console.log("[v0] Web Speech API playback complete")
+
+        toast({
+          title: "Playback Complete",
+          description: "Voice assistant finished reading.",
+        })
+      }
+
+      utterance.onerror = (event) => {
+        console.error("[v0] Web Speech API error:", event.error)
+        setIsVoiceSpeaking(false)
+
+        toast({
+          title: "Error",
+          description: "Could not play audio. Please try again.",
+          variant: "destructive",
+        })
+      }
+
+      window.speechSynthesis.speak(utterance)
+
+      toast({
+        title: "AI Voice Navigator",
+        description: `Reading: ${activeView === "diagnostics" ? "Diagnostic Summary" : activeView === "financial" ? "Financial Roadmap" : "Dashboard Overview"}`,
+      })
+    } else {
+      setIsVoiceSpeaking(false)
+      toast({
+        title: "Error",
+        description: "Text-to-speech is not supported in your browser.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const handleVoiceWelcome = async () => {
+    const welcomeText =
+      language === "en"
+        ? `Welcome to Nahed Health Access. Your medical report has been successfully analyzed. We have identified your diagnosis and prepared a comprehensive care plan including financial assistance options, treatment recommendations, and logistical support. Let's begin with the diagnostic summary.`
+        : `أهلا وسهلا في تطبيق نهضة للوصول الصحي. تم تحليل تقريرك الطبي بنجاح. لقد حددنا التشخيص الخاص بك وأعددنا خطة رعاية شاملة تتضمن خيارات المساعدة المالية والتوصيات العلاجية والدعم اللوجستي. دعنا نبدأ بملخص التشخيص.`
+
+    await playElevenLabsAudio(welcomeText)
+  }
+
+  const handleVoiceInteraction = async () => {
+    if (isVoiceSpeaking) {
+      window.speechSynthesis.cancel()
+      setIsVoiceSpeaking(false)
+      setIsElevenLabsLoading(false)
+      return
+    }
+
+    console.log("[v0] Voice button clicked - patientData exists:", !!patientData)
+    console.log("[v0] patientData content:", JSON.stringify(patientData, null, 2))
+    console.log("[v0] showResults:", showResults)
+    console.log("[v0] activeView:", activeView)
+
+    if (!patientData) {
+      console.error("[v0] patientData is null/undefined. showResults:", showResults)
+      toast({
+        title: "No data available",
+        description: "Please analyze a report first to use voice playback.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    let speechText = ""
+
+    if (activeView === "diagnostics") {
+      // For diagnostics view - read clinical profile and diagnostic summary
+      if (patientData.clinical_profile || patientData.clinical_data) {
+        const clinicalData = patientData.clinical_profile || patientData.clinical_data
+        const diagnosis = cleanMarkdown(clinicalData.diagnosis || "Unknown diagnosis")
+        const stage = cleanMarkdown(clinicalData.stage || "")
+        const urgencyScore = clinicalData.urgency_score || 0
+        const recommendedAction = cleanMarkdown(clinicalData.recommended_action || "Review available")
+
+        // Try to get clinical steps from diagnostic summary
+        let clinicalSteps = ""
+        if (patientData.diagnostic_summary?.clinical_steps) {
+          const steps = patientData.diagnostic_summary.clinical_steps
+          clinicalSteps = Array.isArray(steps)
+            ? steps.map((s: string) => cleanMarkdown(s)).join(". ")
+            : cleanMarkdown(String(steps))
+        }
+
+        speechText = `Diagnosis: ${diagnosis}${stage ? `. Stage: ${stage}` : ""}. Urgency score: ${(urgencyScore * 100).toFixed(0)} percent. Recommended action: ${recommendedAction}${clinicalSteps ? `. Clinical steps: ${clinicalSteps}` : ""}`
+      } else if (patientData.diagnostic_summary) {
+        const diagnosticData = patientData.diagnostic_summary
+        const urgency = cleanMarkdown(diagnosticData.urgency || "Medium")
+        let stepsText = ""
+        if (diagnosticData.clinical_steps) {
+          const steps = diagnosticData.clinical_steps
+          stepsText = Array.isArray(steps)
+            ? steps.map((s: string) => cleanMarkdown(s)).join(". ")
+            : cleanMarkdown(String(steps))
+        }
+        speechText = `Urgency level: ${urgency}${stepsText ? `. Clinical steps: ${stepsText}` : `. Analysis complete, please review your dashboard`}"
+      } else {
+        speechText = "Analysis complete, please review your dashboard"
+      }
+    } else if (activeView === "financial") {
+      // For financial view - read financial roadmap
+      if (patientData.financial_roadmap || patientData.financial_profile) {
+        const financialData = patientData.financial_roadmap || patientData.financial_profile
+        const classification = cleanMarkdown(financialData.fibo_classification || financialData.fibo_class || "Unknown")
+        const estimatedCost = cleanMarkdown(financialData.estimated_annual_cost || "Not specified")
+        const insuranceStatus = cleanMarkdown(financialData.insurance_status || "Unknown")
+
+        speechText = \`Financial roadmap: FIBO classification is ${classification}. Estimated annual cost: ${estimatedCost}. Insurance status: ${insuranceStatus}. Please review the detailed financial plan on your dashboard.`
+      } else {
+        speechText = "Financial information not available. Please review your dashboard."
+      }
+    } else {
+      // Default fallback - read the most relevant clinical data available
+      if (patientData.clinical_profile || patientData.clinical_data) {
+        const clinicalData = patientData.clinical_profile || patientData.clinical_data
+        const diagnosis = cleanMarkdown(clinicalData.diagnosis || "Unknown")
+        const recommendedAction = cleanMarkdown(clinicalData.recommended_action || "Review available")
+        speechText = `Diagnosis: ${diagnosis}. Recommended action: ${recommendedAction}. Analysis complete, please review your dashboard.`
+      } else if (patientData.diagnostic_summary) {
+        const diagnosticData = patientData.diagnostic_summary
+        const urgency = cleanMarkdown(diagnosticData.urgency || "Medium")
+        speechText = `Urgency level: ${urgency}. Analysis complete, please review your dashboard.`
+      } else {
+        speechText = "Analysis complete, please review your dashboard."
+      }
+    }
+
+    console.log("[v0] Generated speech text:", speechText)
+
+    if (!speechText || speechText.trim() === "") {
+      toast({
+        title: "No data available",
+        description: "Could not generate audio content.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    await playElevenLabsAudio(speechText)
+  }
 
   const handleFileUploadToGemini = async (file: File) => {
     setIsLoading(true)
@@ -96,160 +300,6 @@ export default function NahedHealthAccessDashboard() {
       })
     } finally {
       setIsLoading(false)
-    }
-  }
-
-  const handleVoiceWelcome = async () => {
-    const welcomeText =
-      language === "en"
-        ? `Welcome to Nahed Health Access. Your medical report has been successfully analyzed. We have identified your diagnosis and prepared a comprehensive care plan including financial assistance options, treatment recommendations, and logistical support. Let's begin with the diagnostic summary.`
-        : `أهلا وسهلا في تطبيق نهضة للوصول الصحي. تم تحليل تقريرك الطبي بنجاح. لقد حددنا التشخيص الخاص بك وأعددنا خطة رعاية شاملة تتضمن خيارات المساعدة المالية والتوصيات العلاجية والدعم اللوجستي. دعنا نبدأ بملخص التشخيص.`
-
-    if ("speechSynthesis" in window) {
-      window.speechSynthesis.cancel()
-
-      const utterance = new SpeechSynthesisUtterance(welcomeText)
-      utterance.lang = language === "en" ? "en-US" : "ar-EG"
-      utterance.rate = 1
-      utterance.pitch = 1
-      utterance.volume = 1
-
-      const getVoices = () => {
-        const voices = window.speechSynthesis.getVoices()
-        let selectedVoice = null
-
-        if (language === "en") {
-          selectedVoice =
-            voices.find((voice) => voice.name.includes("female") && voice.lang.includes("en")) ||
-            voices.find((voice) => voice.lang.includes("en-US") && voice.name.includes("Google US English Female")) ||
-            voices.find((voice) => voice.lang.includes("en") && !voice.name.includes("male")) ||
-            voices.find((voice) => voice.lang.includes("en"))
-        } else if (language === "ar") {
-          selectedVoice =
-            voices.find((voice) => voice.lang.includes("ar")) || voices.find((voice) => voice.lang.includes("ar-EG"))
-        }
-
-        if (selectedVoice) {
-          utterance.voice = selectedVoice
-        }
-      }
-
-      window.speechSynthesis.onvoiceschanged = getVoices
-      getVoices()
-
-      window.speechSynthesis.speak(utterance)
-    }
-  }
-
-  const handleVoiceInteraction = async () => {
-    console.log("[v0] Voice interaction initiated")
-
-    toast({
-      title: "Connecting to Voice Agent...",
-      description: `Language: ${language === "en" ? "English" : "Arabic (Egyptian)"}`,
-    })
-
-    setIsVoiceSpeaking(true)
-
-    // Get the text to speak based on the current view
-    let speechText = ""
-
-    if (activeView === "diagnostics") {
-      const pharmaText = patientData?.pharma_access_integration?.drug_details?.generic_name
-        ? `Recommended medication: ${patientData.pharma_access_integration.drug_details.generic_name}.`
-        : ""
-      speechText =
-        language === "en"
-          ? `The diagnostic summary shows high urgency. Initial assessment complete. Specialist referral pending. ${pharmaText}`
-          : `ملخص التشخيص يظهر حالة طارئة عالية. التقييم الأولي مكتمل. الإحالة إلى متخصص معلقة.`
-    } else if (activeView === "financial") {
-      speechText =
-        language === "en"
-          ? `FIBO Financial Roadmap. Estimated total cost: $12,450. Funding breakdown: Patient coverage: $4,200. NGO support: $6,000. Grant pending: $2,250. ${
-              patientData?.pharma_access_integration?.drug_details?.generic_name
-                ? `Recommended medication: ${patientData.pharma_access_integration.drug_details.generic_name}.`
-                : ""
-            }`
-          : `جدول الطريق المالي لـ FIBO. إجمالي التكلفة المقدرة: 12,450 دولار. تفصيل التمويل: تغطية المريض: 4,200 دولار. دعم المنظمات غير الحكومية: 6,000 دولار. منحة معلقة: 2,250 دولار.`
-    }
-
-    console.log("[v0] Speaking:", speechText)
-
-    // Use Web Speech API for text-to-speech
-    if ("speechSynthesis" in window) {
-      // Cancel any ongoing speech
-      window.speechSynthesis.cancel()
-
-      const utterance = new SpeechSynthesisUtterance(speechText)
-      utterance.lang = language === "en" ? "en-US" : "ar-EG"
-      utterance.rate = 1
-      utterance.pitch = 1
-      utterance.volume = 1
-
-      // Get available voices and select a female voice
-      const getVoices = () => {
-        const voices = window.speechSynthesis.getVoices()
-        let selectedVoice = null
-
-        // Try to find a professional female voice
-        if (language === "en") {
-          selectedVoice =
-            voices.find((voice) => voice.name.includes("female") && voice.lang.includes("en")) ||
-            voices.find((voice) => voice.lang.includes("en-US") && voice.name.includes("Google US English Female")) ||
-            voices.find((voice) => voice.lang.includes("en") && !voice.name.includes("male")) ||
-            voices.find((voice) => voice.lang.includes("en"))
-        } else if (language === "ar") {
-          selectedVoice =
-            voices.find((voice) => voice.lang.includes("ar")) || voices.find((voice) => voice.lang.includes("ar-EG"))
-        }
-
-        if (selectedVoice) {
-          utterance.voice = selectedVoice
-        }
-      }
-
-      // Voices might not be loaded yet, so add an event listener
-      window.speechSynthesis.onvoiceschanged = getVoices
-      getVoices()
-
-      // Handle speech end
-      utterance.onend = () => {
-        setIsVoiceSpeaking(false)
-        console.log("[v0] Voice interaction complete")
-
-        toast({
-          title: "Playback Complete",
-          description: "Voice assistant finished reading.",
-        })
-      }
-
-      // Handle errors
-      utterance.onerror = (event) => {
-        console.error("[v0] Speech synthesis error:", event.error)
-        setIsVoiceSpeaking(false)
-
-        toast({
-          title: "Error",
-          description: "Could not play audio. Please try again.",
-          variant: "destructive",
-        })
-      }
-
-      // Speak the text
-      window.speechSynthesis.speak(utterance)
-
-      toast({
-        title: "AI Voice Navigator",
-        description: `Reading: ${activeView === "diagnostics" ? "Diagnostic Summary" : "Financial Roadmap"}`,
-      })
-    } else {
-      // Fallback if Web Speech API is not supported
-      setIsVoiceSpeaking(false)
-      toast({
-        title: "Error",
-        description: "Text-to-speech is not supported in your browser.",
-        variant: "destructive",
-      })
     }
   }
 
@@ -540,17 +590,21 @@ export default function NahedHealthAccessDashboard() {
                   <div className="max-w-2xl">
                     <div className="flex items-center justify-between mb-6">
                       <h2 className="text-2xl font-semibold text-foreground">Diagnostic Summary</h2>
+                      {/* update speaker icon button to show ElevenLabs loading state */}
                       <Button
-                        size="sm"
                         variant="outline"
                         onClick={handleVoiceInteraction}
-                        disabled={isVoiceSpeaking}
+                        disabled={isVoiceSpeaking || isElevenLabsLoading}
                         className="bg-medical-success/5 hover:bg-medical-success/10 border-medical-success/20 text-medical-success"
                       >
                         {isVoiceSpeaking ? (
                           <>
-                            <Volume2 className="w-4 h-4 mr-2 animate-pulse" />
-                            Speaking...
+                            {isElevenLabsLoading ? (
+                              <div className="w-4 h-4 mr-2 border-2 border-transparent border-t-medical-success rounded-full animate-spin" />
+                            ) : (
+                              <Volume2 className="w-4 h-4 mr-2 animate-pulse" />
+                            )}
+                            {isElevenLabsLoading ? "Loading..." : "Speaking..."}
                           </>
                         ) : (
                           <>
@@ -622,17 +676,22 @@ export default function NahedHealthAccessDashboard() {
                   <div className="max-w-2xl">
                     <div className="flex items-center justify-between mb-6">
                       <h2 className="text-2xl font-semibold text-foreground">FIBO Financial Roadmap</h2>
+                      {/* update speaker icon button in financial section */}
                       <Button
                         size="sm"
                         variant="outline"
                         onClick={handleVoiceInteraction}
-                        disabled={isVoiceSpeaking}
+                        disabled={isVoiceSpeaking || isElevenLabsLoading}
                         className="bg-medical-financial/5 hover:bg-medical-financial/10 border-medical-financial/20 text-medical-financial"
                       >
                         {isVoiceSpeaking ? (
                           <>
-                            <Volume2 className="w-4 h-4 mr-2 animate-pulse" />
-                            Speaking...
+                            {isElevenLabsLoading ? (
+                              <div className="w-4 h-4 mr-2 border-2 border-transparent border-t-medical-financial rounded-full animate-spin" />
+                            ) : (
+                              <Volume2 className="w-4 h-4 mr-2 animate-pulse" />
+                            )}
+                            {isElevenLabsLoading ? "Loading..." : "Speaking..."}
                           </>
                         ) : (
                           <>
@@ -996,10 +1055,10 @@ export default function NahedHealthAccessDashboard() {
                 <Button
                   size="lg"
                   onClick={handleVoiceInteraction}
-                  disabled={isVoiceSpeaking}
+                  disabled={isVoiceSpeaking || isElevenLabsLoading}
                   className="w-16 h-16 rounded-full bg-gradient-to-r from-medical-success to-medical-primary text-white shadow-xl hover:shadow-2xl transition-all relative"
                 >
-                  {isVoiceSpeaking ? (
+                  {isVoiceSpeaking || isElevenLabsLoading ? (
                     <div className="flex flex-col items-center justify-center">
                       <Volume2 className="w-6 h-6 animate-pulse" />
                       {/* Waveform Animation */}
@@ -1025,7 +1084,7 @@ export default function NahedHealthAccessDashboard() {
                   )}
 
                   {/* Pulse Ring */}
-                  {isVoiceSpeaking && (
+                  {(isVoiceSpeaking || isElevenLabsLoading) && (
                     <motion.div
                       className="absolute inset-0 rounded-full bg-medical-success"
                       animate={{
