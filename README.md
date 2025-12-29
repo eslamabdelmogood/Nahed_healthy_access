@@ -37,13 +37,13 @@ To ensure scalability and clean code, the project is structured as follows:
 
 ## ⚙️ How to test or try it 
 
-1- open the repository: `https://github.com/eslamabdelmogood/Nahed-healthy-access-v3`
+1- open the repository: `https://github.com/eslamabdelmogood/Nahed_healthy_access`
 
 2-Search for a folder named : `input`
 
 3-Download the file inside. file name  : `healthy.json`
 
-4- Open the website using this link : `https://v0-nahedhealthyaccessmain-5k.vercel.app/`
+4- Open the website using this link : `https://v0-v0nahedhealthaccessappmain.vercel.app/`
 
 5-Click on the icon 'select file ' and upload file 'healthy.json'
 
